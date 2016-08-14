@@ -51,38 +51,18 @@ int initializeSocket(int port_number)
 	return socket_descriptor;
 }
 
-void sendData(int socket_descriptor, string data)	// Returns 1 if an error occurs while writing.
+int sendData(string data, int socket_descriptor)
 {
-	char* dataToBeSent = new char[data.length() + 1];
-	for (int i = 0; i < data.length(); i++)
-		dataToBeSent[i] = data[i];
-	dataToBeSent[data.length()] = '\0';
-	write(socket_descriptor, dataToBeSent, strlen(dataToBeSent) + 1);
+	const char* dataToBeSent = data.c_str();
+	return write(socket_descriptor, dataToBeSent, strlen(dataToBeSent) + 1) == -1;
 }
 
-bool receiveData(int socket_descriptor)
+int receiveData(int socket_descriptor)
 {
 	char buffer[MAX];
-	read(socket_descriptor, buffer, MAX);
+	if (read(socket_descriptor, buffer, sizeof(buffer)) <= 0)
+		return -1;
 	cout << buffer << '\n';
-	return buffer[0] == 'I';
-}
-
-int enterIRC(int socket_descriptor)
-{
-	string username, password;
-	
-	cout << "Enter username: ";
-	cin >> username;
-	
-	cout << "Enter password: ";
-	cin >> password;
-
-	sendData(socket_descriptor, username);
-	sendData(socket_descriptor, password);
-	
-	if (receiveData(socket_descriptor) == 1)
-		enterIRC(socket_descriptor);
 	return 0;
 }
 
@@ -97,36 +77,41 @@ int main(int argc, char *argv[])
 	}
 	strcpy(server_host, argv[1]);
 
-	int registration_socket = initializeSocket(REGISTRATION_PORT), login_socket = initializeSocket(LOGIN_PORT);
-	string username, password;
+	int registration_socket = initializeSocket(REGISTRATION_PORT);
+	if (registration_socket == -1)
+		exit(0);
+	int IRC_socket = initializeSocket(LOGIN_PORT);
+	string str;
 	char buffer[MAX];
-	if (registration_socket == -1 || login_socket == -1)
+	if (registration_socket == -1 || IRC_socket == -1)
 		exit(0);
 
-	cout << "IRC Channel\n1) Register\n2) Login\n3) Exit\n";
+	cout << "IRC Channel\n";
+	cout << "Here\'s a list of commands to get you started:\n";
+	cout << "/who: List all users online.\n";
+	cout << "/register <username> <password>: Create a new account.\n";
+	cout << "/login <username> <password>: Log in to IRC.\n";
+	cout << "/msg <username> <message>: Send <message> to the specified <username>.\n";
+	cout << "/join_group <group>: Join <group>.\n";
+	cout << "/create_group <group>: Create a new <group>.\n";
+	cout << "/msg_group <group> <message>: Broadcast <message> to <group>.\n";
+	cout << "/send <username> <filename>: Send <filename> to <username>.\n";
+	cout << "/recv: Receive the file that is being sent by someone.\n";
+	cout << "/exit: Logout and exit portal.\nEnter your command after \">>\".\n";
+	
 	while (1)
 	{
-		cout << "Enter the corresponding number: ";
-
-		string menu_choice;
-		cin >> menu_choice;
-
-		if (menu_choice.length() > 1 || menu_choice[0] > '3')
+		cout << ">> ";
+		getline(cin, str);
+		if (str.substr(0, 9) == "/register")	//works
 		{
-			cout << "Invalid option. Please try again.\n";
-			continue;
+			sendData(str, registration_socket);
+			receiveData(registration_socket);
 		}
 		else
 		{
-			if (menu_choice == "1")
-				enterIRC(registration_socket);
-			else if (menu_choice == "2")
-				enterIRC(login_socket);
-			else if (menu_choice == "3")
-			{
-				cout << "Bye!\n";
-				exit(0);
-			}
+			sendData(str, IRC_socket);
+			receiveData(IRC_socket);
 		}
 	}
 	return 0;
