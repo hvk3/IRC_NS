@@ -25,6 +25,7 @@ using namespace std;
 
 map <string, pair <string, bool> > users;
 map <string, pair <string, bool> >::iterator iter;
+map <string, int> user_to_conn;
 set <string> groups;
 
 pthread_mutex_t lock;
@@ -91,7 +92,8 @@ void* registerUser(void* socket_descriptor)
 	int sock = *(int*)socket_descriptor;
 	char buffer[MAX];
 	
-	read(sock, buffer, sizeof(buffer));
+	if (read(sock, buffer, sizeof(buffer)) <= 0)
+		return 0;
 	char *temp = strtok(buffer, " ");
 	
 	temp = strtok(NULL, " ");
@@ -109,11 +111,57 @@ void* registerUser(void* socket_descriptor)
 	{
 		pthread_mutex_lock(&lock);
 		users[username] = make_pair(password, false);
+		user_to_conn[username] = sock;
 		saveUsers();
 		pthread_mutex_unlock(&lock);
 		string success = "You have been successfully registered.";
 		sendData(success, sock);
 	}
+	registerUser(socket_descriptor);
+}
+
+void* loginUser(void* socket_descriptor)
+{
+	int sock = *(int*)socket_descriptor;
+	char buffer[MAX];
+	
+	read(sock, buffer, sizeof(buffer));
+	char *temp = strtok(buffer, " ");
+	
+	temp = strtok(NULL, " ");
+	string username(temp);
+	
+	temp = strtok(NULL, " ");
+	string password(temp);
+
+	if (users.count(username) == 0 || users[username].first != password)
+	{
+		string error = "These credentials are invalid. Try again.";
+		sendData(error, sock);
+		loginUser(socket_descriptor);
+	}
+	else
+	{
+		users[username].second = true;
+		string success = "You have been successfully logged in.";
+		sendData(success, sock);
+	}
+}
+
+void *functionHandler(void* socket_descriptor)
+{
+	int sock = *(int*)socket_descriptor;
+	char buffer[MAX], input[MAX];
+	
+	read(sock, buffer, sizeof(buffer));
+	char *temp = strtok(buffer, " ");
+	string command(temp);
+
+	// switch command{
+	// 	case "/exit":
+	// 		strcpy(input, "You have been successfully logged out.");
+
+	// }
 }
 
 vector <string> loggedInUsers()
@@ -141,7 +189,7 @@ int main()
 
 		pthread_t IRC, registration, commands;
 		pthread_create(&registration, NULL, registerUser, &registration_fd);
-		pthread_create(&IRC, NULL, IRCUser, &IRC_fd);
+		// pthread_create(&IRC, NULL, functionHandler, &IRC_fd);
 		// pthread_create(&commands, NULL, functionHandler, &IRC_fd);
 	}
 

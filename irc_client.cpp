@@ -81,6 +81,7 @@ int main(int argc, char *argv[])
 	if (registration_socket == -1)
 		exit(0);
 	int IRC_socket = initializeSocket(LOGIN_PORT);
+	bool logged_in = false;
 	string str;
 	char buffer[MAX];
 	if (registration_socket == -1 || IRC_socket == -1)
@@ -110,6 +111,7 @@ int main(int argc, char *argv[])
 		}
 		else
 		{
+			
 			sendData(str, IRC_socket);
 			receiveData(IRC_socket);
 		}
