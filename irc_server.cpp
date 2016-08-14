@@ -26,6 +26,7 @@ using namespace std;
 map <string, pair <string, bool> > users;
 map <string, pair <string, bool> >::iterator iter;
 map <string, int> user_to_conn;
+map <int, string> conn_to_user;
 set <string> groups;
 
 pthread_mutex_t lock;
@@ -112,6 +113,7 @@ void* registerUser(void* socket_descriptor)
 		pthread_mutex_lock(&lock);
 		users[username] = make_pair(password, false);
 		user_to_conn[username] = sock;
+		conn_to_user[sock] = username;
 		saveUsers();
 		pthread_mutex_unlock(&lock);
 		string success = "You have been successfully registered.";
@@ -120,14 +122,10 @@ void* registerUser(void* socket_descriptor)
 	registerUser(socket_descriptor);
 }
 
-void* loginUser(void* socket_descriptor)
+int loginUser(char *buffer, int sock)
 {
-	int sock = *(int*)socket_descriptor;
-	char buffer[MAX];
-	
-	read(sock, buffer, sizeof(buffer));
 	char *temp = strtok(buffer, " ");
-	
+
 	temp = strtok(NULL, " ");
 	string username(temp);
 	
@@ -138,30 +136,55 @@ void* loginUser(void* socket_descriptor)
 	{
 		string error = "These credentials are invalid. Try again.";
 		sendData(error, sock);
-		loginUser(socket_descriptor);
+		return -1;
 	}
 	else
 	{
 		users[username].second = true;
+		// conn_to_user[sock] = username;
+		// user_to_conn[username] = sock;
 		string success = "You have been successfully logged in.";
 		sendData(success, sock);
+		return 0;
 	}
+}
+
+void logoutUser(int sock)
+{
+	printf("hui");
+	string success = "You have been successfully logged out.";
+	sendData(success, sock);
+	string username = conn_to_user[sock];
+	users[username].second = false;
+	user_to_conn.erase(username);
+	conn_to_user.erase(sock);
 }
 
 void *functionHandler(void* socket_descriptor)
 {
 	int sock = *(int*)socket_descriptor;
-	char buffer[MAX], input[MAX];
+	char buffer[MAX], input[MAX], sent[MAX];
 	
-	read(sock, buffer, sizeof(buffer));
-	char *temp = strtok(buffer, " ");
-	string command(temp);
-
-	// switch command{
-	// 	case "/exit":
-	// 		strcpy(input, "You have been successfully logged out.");
-
-	// }
+	if (read(sock, buffer, sizeof(buffer)) != -1)
+	{
+		printf("%s\n", buffer);
+		strcpy(sent, buffer);
+		char *temp = strtok(sent, " ");
+		string command(temp);
+		if (command == "/login")
+			loginUser(buffer, sock);
+		else if (command == "/logout")
+			logoutUser(sock);
+		else if (command == "/exit_portal")
+		{
+			logoutUser(sock);
+			close(sock);
+			return 0;
+		}
+		functionHandler(socket_descriptor);
+	}
+	else
+		functionHandler(socket_descriptor);
 }
 
 vector <string> loggedInUsers()
@@ -189,7 +212,7 @@ int main()
 
 		pthread_t IRC, registration, commands;
 		pthread_create(&registration, NULL, registerUser, &registration_fd);
-		// pthread_create(&IRC, NULL, functionHandler, &IRC_fd);
+		pthread_create(&IRC, NULL, functionHandler, &IRC_fd);
 		// pthread_create(&commands, NULL, functionHandler, &IRC_fd);
 	}
 

@@ -63,7 +63,7 @@ int receiveData(int socket_descriptor)
 	if (read(socket_descriptor, buffer, sizeof(buffer)) <= 0)
 		return -1;
 	cout << buffer << '\n';
-	return 0;
+	return buffer[0] == 'T' ? -1 : 0;
 }
 
 int main(int argc, char *argv[])
@@ -98,23 +98,48 @@ int main(int argc, char *argv[])
 	cout << "/msg_group <group> <message>: Broadcast <message> to <group>.\n";
 	cout << "/send <username> <filename>: Send <filename> to <username>.\n";
 	cout << "/recv: Receive the file that is being sent by someone.\n";
-	cout << "/exit: Logout and exit portal.\nEnter your command after \">>\".\n";
+	cout << "/logout: Log out from IRC.\n";
+	cout << "/exit_portal: Exit portal.\nEnter your command after \">>\".\n";
 	
 	while (1)
 	{
 		cout << ">> ";
 		getline(cin, str);
+
 		if (str.substr(0, 9) == "/register")	//works
 		{
 			sendData(str, registration_socket);
 			receiveData(registration_socket);
 		}
-		else
+		else if (str == "/exit_portal")
 		{
-			
-			sendData(str, IRC_socket);
-			receiveData(IRC_socket);
+			if (logged_in)
+			{
+				sendData(str, IRC_socket);
+				receiveData(IRC_socket);
+			}
+			else
+				cout << "Goodbye!\n";
+			exit(0);
 		}
+		else if (str == "/logout")
+		{
+			if (logged_in)
+			{
+				sendData(str, IRC_socket);
+				receiveData(IRC_socket);
+				logged_in = false;
+			}
+			else
+				cout << "Please log in first.\n";
+		}
+		else if (str.substr(0, 6) == "/login")
+		{
+			sendData(str, IRC_socket);
+			if (receiveData(IRC_socket) != -1)
+				logged_in = true;
+		}
+		// else if 
 	}
 	return 0;
 }
