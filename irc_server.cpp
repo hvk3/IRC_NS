@@ -4,6 +4,7 @@
 #include <string>
 #include <map>
 #include <set>
+#include <queue>
 #include <algorithm>
 #include <fstream>
 
@@ -26,8 +27,13 @@ using namespace std;
 map <string, pair <string, bool> > users;
 map <string, pair <string, bool> >::iterator iter;
 map <string, int> user_to_conn;
+map <string, int>::iterator iter1;
 map <int, string> conn_to_user;
-set <string> groups;
+map <int, string>::iterator iter2;
+map < string, vector <string> > groups;
+map < string, vector <string> >::iterator iter3;
+map < string, queue <string> > groupchat;
+map < string, queue <string> >::iterator iter4;
 
 pthread_mutex_t lock;
 
@@ -93,43 +99,51 @@ void* registerUser(void* socket_descriptor)
 	int sock = *(int*)socket_descriptor;
 	char buffer[MAX];
 	
-	if (read(sock, buffer, sizeof(buffer)) <= 0)
-		return 0;
-	char *temp = strtok(buffer, " ");
-	
-	temp = strtok(NULL, " ");
-	string username(temp);
-	
-	temp = strtok(NULL, " ");
-	string password(temp);
+	while (1)
+	{
+		if (read(sock, buffer, sizeof(buffer)) <= 0)
+			return 0;
+		char *temp = strtok(buffer, " ");
 
-	if (users.count(username) > 0)
-	{
-		string error = "This username is already in use. Try a different one.";
-		sendData(error, sock);
+		temp = strtok(NULL, " ");
+		string username(temp);
+	
+		temp = strtok(NULL, " ");
+		string password(temp);
+
+		if (users.count(username) > 0)
+		{
+			string error = "This username is already in use. Try a different one.";
+			sendData(error, sock);
+		}
+		else
+		{
+			pthread_mutex_lock(&lock);
+			users[username] = make_pair(password, false);
+			user_to_conn[username] = sock;
+			conn_to_user[sock] = username;
+			saveUsers();
+			pthread_mutex_unlock(&lock);
+			string success = "You have been successfully registered.";
+			sendData(success, sock);
+		}
 	}
-	else
-	{
-		pthread_mutex_lock(&lock);
-		users[username] = make_pair(password, false);
-		user_to_conn[username] = sock;
-		conn_to_user[sock] = username;
-		saveUsers();
-		pthread_mutex_unlock(&lock);
-		string success = "You have been successfully registered.";
-		sendData(success, sock);
-	}
-	registerUser(socket_descriptor);
 }
 
 int loginUser(char *buffer, int sock)
 {
 	char *temp = strtok(buffer, " ");
+	if (temp == NULL)
+		return -1;
 
 	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return -1;
 	string username(temp);
 	
 	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return -1;
 	string password(temp);
 
 	if (users.count(username) == 0 || users[username].first != password)
@@ -141,8 +155,8 @@ int loginUser(char *buffer, int sock)
 	else
 	{
 		users[username].second = true;
-		// conn_to_user[sock] = username;
-		// user_to_conn[username] = sock;
+		conn_to_user[sock] = username;
+		user_to_conn[username] = sock;
 		string success = "You have been successfully logged in.";
 		sendData(success, sock);
 		return 0;
@@ -151,49 +165,122 @@ int loginUser(char *buffer, int sock)
 
 void logoutUser(int sock)
 {
-	printf("hui");
-	string success = "You have been successfully logged out.";
-	sendData(success, sock);
 	string username = conn_to_user[sock];
 	users[username].second = false;
 	user_to_conn.erase(username);
 	conn_to_user.erase(sock);
-}
-
-void *functionHandler(void* socket_descriptor)
-{
-	int sock = *(int*)socket_descriptor;
-	char buffer[MAX], input[MAX], sent[MAX];
-	
-	if (read(sock, buffer, sizeof(buffer)) != -1)
-	{
-		printf("%s\n", buffer);
-		strcpy(sent, buffer);
-		char *temp = strtok(sent, " ");
-		string command(temp);
-		if (command == "/login")
-			loginUser(buffer, sock);
-		else if (command == "/logout")
-			logoutUser(sock);
-		else if (command == "/exit_portal")
-		{
-			logoutUser(sock);
-			close(sock);
-			return 0;
-		}
-		functionHandler(socket_descriptor);
-	}
-	else
-		functionHandler(socket_descriptor);
+	string success = "You have been successfully logged out.";
+	sendData(success, sock);
 }
 
 vector <string> loggedInUsers()
 {
 	vector <string> loggedIn;
-	for (iter = users.begin(); iter != users. end(); iter++)
+	for (iter = users.begin(); iter != users.end(); iter++)
 		if (iter -> second.second)
 			loggedIn.push_back(iter -> first);
 	return loggedIn;
+}
+
+void createGroup(char *buffer, int sock)
+{
+	char *temp = strtok(buffer, " ");
+	temp = strtok(NULL, " ");
+	string group(temp);
+
+	if (groups.count(group) > 0)
+	{
+		string error = "This group already exists. Try joining it.";
+		sendData(error, sock);
+	}
+	else
+	{
+		vector <string> members;
+		members.push_back(conn_to_user[sock]); 
+		groups[group] = members;
+		string success = "This group has been made, and you have been added to it.";
+		sendData(success, sock);
+	}
+}
+
+void joinGroup(char *buffer, int sock)
+{
+	char *temp = strtok(buffer, " ");
+	temp = strtok(NULL, " ");
+	string group(temp);
+
+	if (groups.count(group) == 0)
+	{
+		string error = "This group does not exist. Try creating it.";
+		sendData(error, sock);
+	}
+	else
+	{
+		string username = conn_to_user[sock];
+		bool flag = false;
+		for (int i = 0; i < groups[group].size(); i++)
+			if (groups[group][i] == username)
+			{
+				flag = 1;
+				break;
+			}
+		if (!flag)
+		{
+			groups[group].push_back(username);
+			string success = "You have been added to the group.";
+			sendData(success, sock);
+		}
+		else
+		{
+			string error = "This user is already in the group.";
+			sendData(error, sock);
+		}
+	}
+		
+}
+
+void *functionHandler(void* socket_descriptor)
+{
+	int sock = *(int*)socket_descriptor;
+	char buffer[MAX], input[MAX], temp_buffer[MAX];
+	
+	while (1)
+	{
+		if (!read(sock, buffer, sizeof(buffer)))
+			return 0;
+	
+		strcpy(temp_buffer, buffer);
+		char *temp = strtok(temp_buffer, " ");
+		string command(temp);
+		if (command == "/login")
+			loginUser(buffer, sock);
+		else if (command == "/logout")
+			logoutUser(sock);
+		else if (command == "/logout_exit")
+		{
+			logoutUser(sock);
+			string data = "Goodbye!";
+			sendData(data, sock);
+			close(sock);
+			return 0;
+		}
+		else if (command == "/who")
+		{
+			vector <string> loggedinusers = loggedInUsers();
+			string users = "";
+			for (int i = 0; i < loggedinusers.size(); i++)
+			{
+				users += loggedinusers[i];
+				if (i != loggedinusers.size() - 1)
+					users += "\n";
+			}
+			sendData(users, sock);
+		}
+		else if (command == "/create_group")
+			createGroup(buffer, sock);
+		else if (command == "/join_group")
+			joinGroup(buffer, sock);
+	}
 }
 
 int main()
@@ -210,11 +297,11 @@ int main()
 		registration_fd = accept(registration_socket, (sockaddr*)NULL, NULL);
 		IRC_fd = accept(IRC_socket, (sockaddr*)NULL, NULL);
 
-		pthread_t IRC, registration, commands;
+		pthread_t IRC, registration;
 		pthread_create(&registration, NULL, registerUser, &registration_fd);
 		pthread_create(&IRC, NULL, functionHandler, &IRC_fd);
-		// pthread_create(&commands, NULL, functionHandler, &IRC_fd);
 	}
-
+	close(registration_socket);
+	close(IRC_socket);
 	return 0;
 }

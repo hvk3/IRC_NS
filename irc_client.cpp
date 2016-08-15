@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <stdio.h>
 #include <stdlib.h>
+#include <set>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -84,43 +85,47 @@ int main(int argc, char *argv[])
 	bool logged_in = false;
 	string str;
 	char buffer[MAX];
+	set <string> groups;
+
 	if (registration_socket == -1 || IRC_socket == -1)
 		exit(0);
 
 	cout << "IRC Channel\n";
 	cout << "Here\'s a list of commands to get you started:\n";
-	cout << "/who: List all users online.\n";
-	cout << "/register <username> <password>: Create a new account.\n";
-	cout << "/login <username> <password>: Log in to IRC.\n";
+	cout << "/who: List all users online.\n";	// Works
+	cout << "/register <username> <password>: Create a new account.\n";	// Works
+	cout << "/login <username> <password>: Log in to IRC.\n";	// Works
 	cout << "/msg <username> <message>: Send <message> to the specified <username>.\n";
 	cout << "/join_group <group>: Join <group>.\n";
 	cout << "/create_group <group>: Create a new <group>.\n";
 	cout << "/msg_group <group> <message>: Broadcast <message> to <group>.\n";
 	cout << "/send <username> <filename>: Send <filename> to <username>.\n";
 	cout << "/recv: Receive the file that is being sent by someone.\n";
-	cout << "/logout: Log out from IRC.\n";
-	cout << "/exit_portal: Exit portal.\nEnter your command after \">>\".\n";
+	cout << "/logout: Log out from IRC.\n";	// Works
+	cout << "/exit: Exit portal.\n";	// Works
+	cout << "/logout_exit: Logout and exit portal.\nEnter your command after \">>\".\n";	// Works
 	
 	while (1)
 	{
 		cout << ">> ";
 		getline(cin, str);
 
-		if (str.substr(0, 9) == "/register")	//works
+		if (str.substr(0, 9) == "/register")
 		{
 			sendData(str, registration_socket);
 			receiveData(registration_socket);
 		}
-		else if (str == "/exit_portal")
+		else if (str == "/logout_exit")
 		{
-			if (logged_in)
-			{
-				sendData(str, IRC_socket);
-				receiveData(IRC_socket);
-			}
-			else
-				cout << "Goodbye!\n";
-			exit(0);
+			sendData(str, IRC_socket);
+			receiveData(IRC_socket);
+			logged_in = false;
+			return 0;
+		}
+		else if (str == "/exit")
+		{
+			cout << "Goodbye!\n";
+			return 0;
 		}
 		else if (str == "/logout")
 		{
@@ -135,11 +140,56 @@ int main(int argc, char *argv[])
 		}
 		else if (str.substr(0, 6) == "/login")
 		{
-			sendData(str, IRC_socket);
-			if (receiveData(IRC_socket) != -1)
-				logged_in = true;
+			if (!logged_in)
+			{
+				sendData(str, IRC_socket);
+				if (receiveData(IRC_socket) != -1)
+					logged_in = true;
+			}
+			else
+				cout << "Please log out first.\n";
 		}
-		// else if 
+		else if (str == "/who")
+		{
+			if (logged_in)
+			{
+				sendData(str, IRC_socket);
+				cout << "List of logged-in users:\n";
+				receiveData(IRC_socket);
+			}
+			else
+				cout << "Please log in first.\n";
+		}
+		else if (str.substr(0, 13) == "/create_group" || str.substr(0, 11) == "/join_group")
+		{
+			if (logged_in)
+			{
+				sendData(str, IRC_socket);
+				if (receiveData(IRC_socket) != -1)
+				{
+					char temp[MAX];
+					strcpy(temp, str.c_str());
+					char *temp1 = strtok(temp, " ");
+					temp1 = strtok(NULL, " ");
+					string g(temp1);
+					groups.insert(g);
+				}
+			}
+			else
+				cout << "Please log in first.\n";
+		}
+		else if (str.substr(0, 10) == "/msg_group")
+		{
+			if (logged_in)
+			{
+				sendData(str, IRC_socket);
+				receiveData(IRC_socket);
+			}
+			else
+				cout << "Please log in and join the group first.\n";
+		}
 	}
+	close(registration_socket);
+	close(IRC_socket);
 	return 0;
 }
