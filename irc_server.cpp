@@ -25,17 +25,13 @@ using namespace std;
 #define MAX 500
 
 map <string, pair <string, bool> > users;
-map <string, pair <string, bool> >::iterator iter;
-map <string, int> user_to_conn;
-map <string, int>::iterator iter1;
-map <int, string> conn_to_user;
-map <int, string>::iterator iter2;
-map < string, vector <string> > groups;
-map < string, vector <string> >::iterator iter3;
-map < string, queue <string> > groupchat;
-map < string, queue <string> >::iterator iter4;
+map <string, pair <string, bool> >::iterator users_iter;
 
-pthread_mutex_t lock;
+map <string, int> user_to_conn;
+map <int, string> conn_to_user;
+
+map <string, vector <string> > groups;
+map <string, queue <string> > personal_chat, group_chat;
 
 int initializeSocket(int port_number)
 {
@@ -48,8 +44,8 @@ int initializeSocket(int port_number)
 
 	bind(socket_descriptor, (sockaddr*)&addr, sizeof(addr));
 	listen(socket_descriptor, 100);
-	printf("Listening on port %d.\n", port_number);
 
+	cout << "Listening on port " << port_number << endl;
 	return socket_descriptor;
 }
 
@@ -71,18 +67,12 @@ void saveUsers()
 {
 	fstream file;
 	file.open("records.txt", fstream::out);
-	for (iter = users.begin(); iter != users.end(); iter++)
+	for (users_iter = users.begin(); users_iter != users.end(); users_iter++)
 	{
-		string temp = iter -> first + ' ' + iter -> second.first;
+		string temp = users_iter -> first + ' ' + users_iter -> second.first;
 		file << temp << endl;
 	}
 	file.close();
-}
-
-int sendData(string data, int socket_descriptor)
-{
-	const char* dataToBeSent = data.c_str();
-	return write(socket_descriptor, dataToBeSent, strlen(dataToBeSent) + 1) == -1;
 }
 
 int receiveData(int socket_descriptor)
@@ -90,7 +80,7 @@ int receiveData(int socket_descriptor)
 	char buffer[MAX];
 	if (read(socket_descriptor, buffer, sizeof(buffer)) <= 0)
 		return -1;
-	cout << buffer << '\n';
+	cout << buffer << endl;
 	return 0;
 }
 
@@ -109,24 +99,19 @@ void* registerUser(void* socket_descriptor)
 		string username(temp);
 	
 		temp = strtok(NULL, " ");
-		string password(temp);
+		string password(temp), res;
 
 		if (users.count(username) > 0)
-		{
-			string error = "This username is already in use. Try a different one.";
-			sendData(error, sock);
-		}
+			res = "This username is already in use. Try a different one.";
 		else
 		{
-			pthread_mutex_lock(&lock);
 			users[username] = make_pair(password, false);
-			user_to_conn[username] = sock;
-			conn_to_user[sock] = username;
 			saveUsers();
-			pthread_mutex_unlock(&lock);
-			string success = "You have been successfully registered.";
-			sendData(success, sock);
+			res = "You have been successfully registered. Login to continue.";
 		}
+		const char* info = res.c_str();
+		if (write(sock, info, strlen(info) + 1) == -1)
+			return 0;
 	}
 }
 
@@ -144,23 +129,26 @@ int loginUser(char *buffer, int sock)
 	temp = strtok(NULL, " ");
 	if (temp == NULL)
 		return -1;
-	string password(temp);
+	string password(temp), res;
+
+	int flag = 0;
 
 	if (users.count(username) == 0 || users[username].first != password)
 	{
-		string error = "These credentials are invalid. Try again.";
-		sendData(error, sock);
-		return -1;
+		res = "These credentials are invalid. Try again.";
+		flag = -1;
 	}
 	else
 	{
 		users[username].second = true;
 		conn_to_user[sock] = username;
 		user_to_conn[username] = sock;
-		string success = "You have been successfully logged in.";
-		sendData(success, sock);
-		return 0;
+		res = "You have been successfully logged in.";
 	}
+	const char* info = res.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1)
+		return -1;
+	return flag;
 }
 
 void logoutUser(int sock)
@@ -170,50 +158,58 @@ void logoutUser(int sock)
 	user_to_conn.erase(username);
 	conn_to_user.erase(sock);
 	string success = "You have been successfully logged out.";
-	sendData(success, sock);
+	const char* info = success.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1)
+		return;
 }
 
-vector <string> loggedInUsers()
+void loggedInUsers(int sock)
 {
 	vector <string> loggedIn;
-	for (iter = users.begin(); iter != users.end(); iter++)
-		if (iter -> second.second)
-			loggedIn.push_back(iter -> first);
-	return loggedIn;
+	for (users_iter = users.begin(); users_iter != users.end(); users_iter++)
+		if (users_iter -> second.second)
+			loggedIn.push_back(users_iter -> first);
+	string users = "";
+	for (int i = 0; i < loggedIn.size(); i++)
+	{
+		users += loggedIn[i];
+		if (i != loggedIn.size() - 1)
+			users += "\n";
+	}
+	const char* info = users.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1)
+		return;
 }
 
 void createGroup(char *buffer, int sock)
 {
 	char *temp = strtok(buffer, " ");
 	temp = strtok(NULL, " ");
-	string group(temp);
+	string group(temp), res;
 
 	if (groups.count(group) > 0)
-	{
-		string error = "This group already exists. Try joining it.";
-		sendData(error, sock);
-	}
+		res = "This group already exists. Try joining it.";
 	else
 	{
 		vector <string> members;
 		members.push_back(conn_to_user[sock]); 
 		groups[group] = members;
-		string success = "This group has been made, and you have been added to it.";
-		sendData(success, sock);
+		res = "This group has been made, and you have been added to it.";
 	}
+
+	const char* info = res.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1)
+		return;
 }
 
 void joinGroup(char *buffer, int sock)
 {
 	char *temp = strtok(buffer, " ");
 	temp = strtok(NULL, " ");
-	string group(temp);
+	string group(temp), res;
 
 	if (groups.count(group) == 0)
-	{
-		string error = "This group does not exist. Try creating it.";
-		sendData(error, sock);
-	}
+		res = "This group does not exist. Try creating it.";
 	else
 	{
 		string username = conn_to_user[sock];
@@ -227,16 +223,122 @@ void joinGroup(char *buffer, int sock)
 		if (!flag)
 		{
 			groups[group].push_back(username);
-			string success = "You have been added to the group.";
-			sendData(success, sock);
+			res = "You have been added to this group.";
 		}
 		else
+			res = "You are already in this group.";
+	}
+	const char* info = res.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1)
+		return;
+}
+
+void messageUser(char *buffer, int sock)
+{
+	char *temp = strtok(buffer, " ");
+	if (temp == NULL)
+		return;
+	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return;
+	string receiver(temp);
+	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return;
+	string message(temp);
+	while (temp = strtok(NULL, " "))
+	{
+		string x(temp);
+		message += " " + x;
+	}
+	message = conn_to_user[sock] + ": " + message;
+
+	if (users.count(receiver) == 0)
+	{
+		message = "This user doesn\'t exist. Select a different user to message.";
+		const char* info = message.c_str();
+		if (write(sock, info, strlen(info) + 1) == -1)
+			return;
+	}
+
+	if (users[receiver].second)
+	{
+		while (users[receiver].second && !personal_chat[receiver].empty())
 		{
-			string error = "This user is already in the group.";
-			sendData(error, sock);
+			string temp = personal_chat[receiver].front();
+			personal_chat[receiver].pop();
+			const char* info = temp.c_str();
+			if (write(user_to_conn[receiver], info, strlen(info) + 1) == -1)
+				return;
+		}
+		const char* info = message.c_str();
+		if (write(user_to_conn[receiver], info, strlen(info) + 1) == -1)
+			return;
+	}
+	else
+		personal_chat[receiver].push(message);
+}
+
+void messageGroup(char *buffer, int sock)
+{
+	char *temp = strtok(buffer, " ");
+	if (temp == NULL)
+		return;
+	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return;
+	string groupname(temp);
+	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return;
+	string message(temp);
+	while (temp = strtok(NULL, " "))
+	{
+		string x(temp);
+		message += " " + x;
+	}
+	message = conn_to_user[sock] + ": " + message + " (sent to group " + groupname + ")";
+
+	if (groups.count(groupname) == 0)
+	{
+		message = "This group doesn\'t exist. Select a different group to message, or create a new group.";
+		const char* info = message.c_str();
+		if (write(sock, info, strlen(info) + 1) == -1)
+			return;
+	}
+
+	else
+	{
+		vector <string> members = groups[groupname];
+		for (int i = 0; i < members.size(); i++)
+		{
+			if (users[members[i]].second)
+			{
+				const char* info = message.c_str();
+				if (write(user_to_conn[members[i]], info, strlen(info) + 1) == -1)
+					return;
+			}
+			else
+				personal_chat[members[i]].push(message);
 		}
 	}
-		
+}
+
+
+void clearPersonalMessageQueue(int sock)
+{
+	string username = conn_to_user[sock], temp = "";
+	queue <string> messages = personal_chat[username];
+	while (!messages.empty())
+	{
+		temp += messages.front();
+		messages.pop();
+		if (messages.size())
+			temp += '\n';
+	}
+	const char* info = temp.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1)
+		return;
 }
 
 void *functionHandler(void* socket_descriptor)
@@ -252,55 +354,52 @@ void *functionHandler(void* socket_descriptor)
 		strcpy(temp_buffer, buffer);
 		char *temp = strtok(temp_buffer, " ");
 		string command(temp);
+		cout << "Command received: " << command << endl;
 		if (command == "/login")
 			loginUser(buffer, sock);
 		else if (command == "/logout")
 			logoutUser(sock);
-		else if (command == "/logout_exit")
-		{
-			logoutUser(sock);
-			string data = "Goodbye!";
-			sendData(data, sock);
-			close(sock);
-			return 0;
-		}
 		else if (command == "/who")
-		{
-			vector <string> loggedinusers = loggedInUsers();
-			string users = "";
-			for (int i = 0; i < loggedinusers.size(); i++)
-			{
-				users += loggedinusers[i];
-				if (i != loggedinusers.size() - 1)
-					users += "\n";
-			}
-			sendData(users, sock);
-		}
+			loggedInUsers(sock);
 		else if (command == "/create_group")
 			createGroup(buffer, sock);
 		else if (command == "/join_group")
 			joinGroup(buffer, sock);
+		else if (command == "/msg")
+			messageUser(buffer, sock);
+		else if (command == "/msg_group")
+			messageGroup(buffer, sock);
+		else if (command == "/recv_msg")
+			clearPersonalMessageQueue(sock);
 	}
+	close(sock);
 }
 
 int main()
 {
 	ios::sync_with_stdio(0);
 
-	int registration_socket = initializeSocket(REGISTRATION_PORT), IRC_socket = initializeSocket(IRC_PORT);
-	int registration_fd = 0, IRC_fd = 0;
+	int registration_socket = initializeSocket(REGISTRATION_PORT);
+	if (registration_socket == -1)
+		exit(0);
+	int IRC_socket = initializeSocket(IRC_PORT);
+	int registration_fd = 0, IRC_fd = 0, flag = 1;
 
 	loadUsers();
 
+	cout << endl;
+
+	pthread_t IRC, registration;
+
 	while (1)
 	{
-		registration_fd = accept(registration_socket, (sockaddr*)NULL, NULL);
 		IRC_fd = accept(IRC_socket, (sockaddr*)NULL, NULL);
-
-		pthread_t IRC, registration;
+		registration_fd = accept(registration_socket, (sockaddr*)NULL, NULL);
+		
 		pthread_create(&registration, NULL, registerUser, &registration_fd);
 		pthread_create(&IRC, NULL, functionHandler, &IRC_fd);
 	}
+
 	close(registration_socket);
 	close(IRC_socket);
 	return 0;
