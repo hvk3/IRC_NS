@@ -1,3 +1,4 @@
-all: irc_client.cpp irc_server.cpp
-	g++ -pthread irc_client.cpp -o client
+all: irc_server.cpp
 	g++ -pthread irc_server.cpp -o server -std=c++11
+clean:
+	rm server
