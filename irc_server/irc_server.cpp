@@ -7,9 +7,11 @@
 #include <queue>
 #include <algorithm>
 #include <fstream>
+#include <sstream>
 
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/sendfile.h>
 #include <netinet/in.h>
 #include <netdb.h>
 #include <string.h>
@@ -32,6 +34,11 @@ map <int, string> conn_to_user;
 
 map <string, vector <string> > groups;
 map <string, queue <string> > personal_chat, group_chat;
+
+map <string, vector <pair <string, string> > > files;
+map <string, vector <pair <string, string> > >::iterator file_iter;
+
+int counter = 0;
 
 int initializeSocket(int port_number)
 {
@@ -341,6 +348,80 @@ void clearPersonalMessageQueue(int sock)
 		return;
 }
 
+void receiveFile(char* buffer, int sock)
+{
+	char recd_file[MAX];
+	char *temp = strtok(buffer, " ");
+	if (temp == NULL)
+		return;
+	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return;
+	string receiver(temp);
+	temp = strtok(NULL, " ");
+	if (temp == NULL)
+		return;
+
+	read(sock, recd_file, sizeof(recd_file));
+	string contents(recd_file), filename(temp), servername = "server_file_" + (to_string(counter)), extension = "";
+	for (int i = 0; i < filename.length(); i++)
+		if (filename[i] == '.')
+			for (int j = i; j < filename.length(); j++)
+				extension += filename[j];
+	servername += extension;
+	if (files.count(receiver) == 0)
+	{
+		vector <pair <string, string> > temp;
+		temp.push_back(make_pair(servername, filename));
+		files[receiver] = temp;
+	}
+	else
+		files[receiver].push_back(make_pair(servername, filename));
+	counter++;
+	fstream file;
+	file.open(servername.c_str(), fstream::out);
+	file << contents;
+	file.close();
+	string message = "File received by server.";
+	const char* info = message.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1)
+		return;
+}
+
+void sendFile(int sock)
+{
+	string receiver = conn_to_user[sock], msg, servername, filename;
+	bool flag = 0;
+	if (files.count(receiver) == 0)
+	{
+		msg = "You have no files to receive.";
+		flag = 1;
+	}
+	else
+	{
+		msg = "You were sent " + to_string(files[receiver].size());
+		msg += (files[receiver].size() == 1 ? " file." : " files.");
+	}
+	const char* info = msg.c_str();
+	if (write(sock, info, strlen(info) + 1) == -1 || flag)
+		return;
+	ifstream file;
+	vector <pair <string, string> > t = files[receiver]; 
+	for (int i = 0; i < t.size(); i++)
+	{
+		servername = t[i].first, filename = t[i].second;
+		file.open(servername);
+		stringstream buf;
+		buf << to_string(sock) + filename << "\n" << file.rdbuf();
+		file.close();
+		string fdata(buf.str());
+		info = fdata.c_str();
+		if (write(sock, info, strlen(info) + 1) == -1 || flag)
+			return;
+		remove(servername.c_str());
+	}
+}
+
 void *functionHandler(void* socket_descriptor)
 {
 	int sock = *(int*)socket_descriptor;
@@ -371,6 +452,10 @@ void *functionHandler(void* socket_descriptor)
 			messageGroup(buffer, sock);
 		else if (command == "/recv_msg")
 			clearPersonalMessageQueue(sock);
+		else if (command == "/send")
+			receiveFile(buffer, sock);
+		else if (command == "/recv")
+			sendFile(sock);
 	}
 	close(sock);
 }

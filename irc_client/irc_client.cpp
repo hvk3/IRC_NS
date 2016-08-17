@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <set>
+#include <fstream>
+#include <sstream>
 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -68,11 +70,33 @@ void* receive(void* sock)
 		if (!flag)
 			break;
 		string message(buffer);
+		if (message == "")
+			cout << "You have no unread messages." << endl;
+		else
+			cout << message << endl;
 		if (message == "You have been successfully logged in.")
 			isLoggedIn = true;
 		else if (message == "You have been successfully logged out.")
 			isLoggedIn = false;
-		cout << message << endl;
+		else if (message.substr(0, 13) == "You were sent")
+		{
+			int num_files = 0;
+			for (int i = 14; message[i] >= '0' && message[i] <= '9'; i++)
+				num_files = num_files * 10 + message[i] - '0';
+			for (int i = 0; i < num_files; i++)
+			{
+				read(socket_descriptor, buffer, sizeof(buffer));
+				char temp[strlen(buffer) + 1];
+				strcpy(temp, buffer);
+				char *temp1 = strtok(temp, "\n");
+				string filecontents(buffer);
+				filecontents.erase(0, filecontents.find("\n") + 1);
+				fstream file;
+				file.open(temp1, fstream::out);
+				file << filecontents;
+				file.close();
+			}
+		}
 	}
 }
 
@@ -101,7 +125,7 @@ int main(int argc, char *argv[])
 	int registration_socket = initializeSocket(REGISTRATION_PORT);
 	if (registration_socket == -1)
 		exit(0);
-	string str;
+	string in;
 
 	cout << "Hey there! Welcome to sampleIRC!\n";
 	cout << "Here\'s a list of commands to get you started:\n";
@@ -124,11 +148,11 @@ int main(int argc, char *argv[])
 
 	while (1)
 	{
-		getline(cin, str);
+		getline(cin, in);
 
-		if (str.substr(0, 9) == "/register")
+		if (in.substr(0, 9) == "/register")
 		{
-			if (sendData(str, registration_socket) == -1)
+			if (sendData(in, registration_socket) == -1)
 			{
 				cout << "Connection with server is down. Exiting.\n";
 				close(registration_socket);
@@ -136,7 +160,7 @@ int main(int argc, char *argv[])
 				exit(0);
 			}
 		}
-		else if (str == "/exit")
+		else if (in == "/exit")
 		{
 			if (isLoggedIn)
 				cout << "Log out before exiting." << endl;
@@ -146,26 +170,28 @@ int main(int argc, char *argv[])
 				exit(0);
 			}
 		}
-		else if (str == "/logout")
+		else if (in == "/logout" || in.substr(0, 4) == "/msg" || in == "/recv_msg" || in.substr(0, 10) == "/msg_group" || in == "/who" || in == "/recv")
 		{
 			if (isLoggedIn)
 			{
-				if (sendData(str, IRC_socket) == -1)
+				if (sendData(in, IRC_socket) == -1)
 				{
 					cout << "Connection with server is down. Exiting.\n";
 					close(registration_socket);
 					close(IRC_socket);
 					exit(0);
 				}
+				if (in == "/who")
+					cout << "List of online users:" << endl;
 			}
 			else
 				cout << "Please log in first.\n";
 		}
-		else if (str.substr(0, 6) == "/login")
+		else if (in.substr(0, 6) == "/login")
 		{
 			if (!isLoggedIn)
 			{
-				if (sendData(str, IRC_socket) == -1)
+				if (sendData(in, IRC_socket) == -1)
 				{
 					cout << "Connection with server is down. Exiting.\n";
 					close(registration_socket);
@@ -176,27 +202,11 @@ int main(int argc, char *argv[])
 			else
 				cout << "Please log out first.\n";
 		}
-		else if (str == "/who")
+		else if (in.substr(0, 13) == "/create_group" || in.substr(0, 11) == "/join_group")
 		{
 			if (isLoggedIn)
 			{
-				if (sendData(str, IRC_socket) == -1)
-				{
-					cout << "Connection with server is down. Exiting.\n";
-					close(registration_socket);
-					close(IRC_socket);
-					exit(0);
-				}
-				cout << "List of online users:" << endl;
-			}
-			else
-				cout << "Please log in first.\n";
-		}
-		else if (str.substr(0, 13) == "/create_group" || str.substr(0, 11) == "/join_group")
-		{
-			if (isLoggedIn)
-			{
-				if (sendData(str, IRC_socket) == -1)
+				if (sendData(in, IRC_socket) == -1)
 				{
 					cout << "Connection with server is down. Exiting.\n";
 					close(registration_socket);
@@ -204,7 +214,7 @@ int main(int argc, char *argv[])
 					exit(0);
 				}
 				char temp[MAX];
-				strcpy(temp, str.c_str());
+				strcpy(temp, in.c_str());
 				char *temp1 = strtok(temp, " ");
 				string g(temp1);
 				joinedGroups.insert(g);
@@ -212,26 +222,60 @@ int main(int argc, char *argv[])
 			else
 				cout << "Please log in first.\n";
 		}
-		else if (str.substr(0, 10) == "/msg_group")
+		else if (in.substr(0, 5) == "/send")
 		{
 			if (isLoggedIn)
 			{
-				if (sendData(str, IRC_socket) == -1)
+				const char* temp = in.c_str();
+				char x[strlen(temp + 1)];
+				for (int i = 0; i < strlen(temp); i++)
+					x[i] = temp[i];
+				x[strlen(temp)] = '\0';
+
+				char* temp1 = strtok(x, " ");
+				temp1 = strtok(NULL, " ");
+				if (!temp1)
+				{
+					cout << "No receiver specified." << endl;
+					return 0;
+				}
+				string receiver(temp1);
+				temp1 = strtok(NULL, " ");
+				if (!temp1)
+				{
+					cout << "No file specified." << endl;
+					return 0;
+				}
+
+				string fname(temp1);
+				ifstream file;
+				temp = fname.c_str();
+				file.open(temp);
+				if (!file)
+				{
+					cout << "Could not open the file. Check if the file name and path is correct." << endl;
+					continue;
+				}
+				if (!file.is_open())
+				{
+					cout << "Incorrect filename provided. Please try again." << endl;
+					continue;
+				}
+
+				if (sendData(in, IRC_socket) == -1)
 				{
 					cout << "Connection with server is down. Exiting.\n";
 					close(registration_socket);
 					close(IRC_socket);
 					exit(0);
 				}
-			}
-			else
-				cout << "Please log in and join the group first.\n";
-		}
-		else if (str.substr(0, 4) == "/msg")
-		{
-			if (isLoggedIn)
-			{
-				if (sendData(str, IRC_socket) == -1)
+
+				stringstream buf;
+				buf << file.rdbuf();
+				file.close();
+				string fdata(buf.str());
+
+				if (sendData(fdata, IRC_socket) == -1)
 				{
 					cout << "Connection with server is down. Exiting.\n";
 					close(registration_socket);
@@ -241,21 +285,6 @@ int main(int argc, char *argv[])
 			}
 			else
 				cout << "Please log in first.\n";
-		}
-		else if (str == "/recv_msg")
-		{
-			if (isLoggedIn)
-			{
-				if (sendData(str, IRC_socket) == -1)
-				{
-					cout << "Connection with server is down. Exiting.\n";
-					close(registration_socket);
-					close(IRC_socket);
-					exit(0);
-				}
-			}
-			else
-				cout << "Please log in and join the group first.\n";
 		}
 		else
 			cout << "This command is not a part of the commands supported. Try again." << endl;
