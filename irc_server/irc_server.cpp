@@ -344,10 +344,16 @@ void messageUser(char *buffer, int sock)
 		const char* info = message.c_str();
 		write(user_to_conn[receiver], info, strlen(info) + 1);
 		pthread_mutex_unlock(&personal_message);
+		char temp[] = "Your messages have been successfully delivered.";
+		write(sock, temp, strlen(temp) + 1);
 		return;
 	}
 	else
+	{
 		personal_chat[receiver].push(message);
+		char message[] = "The user you messaged is currently offline. He can view your message after logging in.";
+		write(sock, message, strlen(message) + 1);
+	}
 	pthread_mutex_unlock(&personal_message);
 }
 

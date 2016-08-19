@@ -31,6 +31,7 @@ Error handling:
 Using threads and locks for handling multiple connections.
 Resolving errors coming up while reading from and writing to socket buffers. This was due to the standard behaviour of TCP merging various write commands into one until the buffer capacity was exceeded.
 File handling was a major problem, since the size of the file to be sent, and its extension, were both to be provided. A solution was found by clubbing these with the data being sent, and resolving them appropriately at the receiving end.
+Occasionally, the server didn't give acknowledgements for commands received from clients, even though they were performed. Flushing the standard output heled resolv this bug.
 
 Example:
 Hey there! Welcome to sampleIRC!
@@ -78,6 +79,31 @@ You were sent 1 file.
 You have been successfully logged out.
 /exit
 Goodbye!
-
-Lingering bugs:
-Occasionally, the server might not send a response back immediately, and these get delayed by one command.
+/login dummyuser1 1234
+You have been successfully logged in.
+/create_group pokemongo
+This group has been made, and you have been added to it.
+/join_group pokemongo
+You are already in this group.
+/logout
+You have been successfully logged out.
+/login hvk
+No password provided for logging in.
+/login hvk 1243
+You have been successfully logged in.
+/join_group pokemongo
+You have been added to this group.
+/msg_group hey there! :)
+This group doesn't exist. Select a different group to message, or create a new group.
+/msg_group pokemongo hey there! :)
+hvk: hey there! :) (sent to group pokemongo)
+/logout
+You have been successfully logged out.
+/login dummyuser1 1234
+You have been successfully logged in.
+/recv_msg
+hvk: hey there! :) (sent to group pokemongo)
+/logout
+You have been successfully logged out.
+/exit
+Goodbye!
