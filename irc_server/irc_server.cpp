@@ -24,7 +24,7 @@ using namespace std;
 
 #define REGISTRATION_PORT 5555
 #define IRC_PORT 5556
-#define MAX 500
+#define MAX 1024
 
 map <string, pair <string, bool> > users;
 map <string, pair <string, bool> >::iterator users_iter;
@@ -39,6 +39,8 @@ map <string, vector <pair <string, string> > > files;
 map <string, vector <pair <string, string> > >::iterator file_iter;
 
 int counter = 0;
+
+pthread_mutex_t save_users, logout_user, login_user, create_group, personal_message, group_message, clear_queue, recv_file, send_file, logged_in_users, join_group;
 
 int initializeSocket(int port_number)
 {
@@ -94,20 +96,39 @@ int receiveData(int socket_descriptor)
 void* registerUser(void* socket_descriptor)
 {
 	int sock = *(int*)socket_descriptor;
-	char buffer[MAX];
+	char buffer[MAX], *lock;
 	
 	while (1)
 	{
+		pthread_mutex_lock(&save_users);
 		if (read(sock, buffer, sizeof(buffer)) <= 0)
+		{
+			pthread_mutex_unlock(&save_users);
 			return 0;
-		char *temp = strtok(buffer, " ");
+		}
+		char *temp = strtok_r(buffer, " ", &lock);
+		if (!temp)
+			return 0;
 
-		temp = strtok(NULL, " ");
+		temp = strtok_r(NULL, " ", &lock);
+		if (!temp)
+		{
+			char message[] = "No username provided for registration.";
+			write(sock, message, strlen(message) + 1);
+			pthread_mutex_unlock(&save_users);
+			return 0;
+		}
 		string username(temp);
 	
-		temp = strtok(NULL, " ");
+		temp = strtok_r(NULL, " ", &lock);
+		if (!temp)
+		{
+			char message[] = "No password provided for registration.";
+			write(sock, message, strlen(message) + 1);
+			pthread_mutex_unlock(&save_users);
+			return 0;
+		}
 		string password(temp), res;
-
 		if (users.count(username) > 0)
 			res = "This username is already in use. Try a different one.";
 		else
@@ -117,29 +138,38 @@ void* registerUser(void* socket_descriptor)
 			res = "You have been successfully registered. Login to continue.";
 		}
 		const char* info = res.c_str();
-		if (write(sock, info, strlen(info) + 1) == -1)
-			return 0;
+		write(sock, info, strlen(info) + 1);
+		pthread_mutex_unlock(&save_users);
 	}
 }
 
 int loginUser(char *buffer, int sock)
 {
-	char *temp = strtok(buffer, " ");
-	if (temp == NULL)
-		return -1;
+	char *lock;
+	pthread_mutex_lock(&login_user);
+	char *temp = strtok_r(buffer, " ", &lock);
 
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No username provided for logging in.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&login_user);
 		return -1;
+	}
 	string username(temp);
 	
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No password provided for logging in.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&login_user);
 		return -1;
+	}
 	string password(temp), res;
 
 	int flag = 0;
-
 	if (users.count(username) == 0 || users[username].first != password)
 	{
 		res = "These credentials are invalid. Try again.";
@@ -153,25 +183,27 @@ int loginUser(char *buffer, int sock)
 		res = "You have been successfully logged in.";
 	}
 	const char* info = res.c_str();
-	if (write(sock, info, strlen(info) + 1) == -1)
-		return -1;
+	write(sock, info, strlen(info) + 1);
+	pthread_mutex_unlock(&login_user);
 	return flag;
 }
 
 void logoutUser(int sock)
 {
+	pthread_mutex_lock(&logout_user);
 	string username = conn_to_user[sock];
 	users[username].second = false;
 	user_to_conn.erase(username);
 	conn_to_user.erase(sock);
 	string success = "You have been successfully logged out.";
 	const char* info = success.c_str();
-	if (write(sock, info, strlen(info) + 1) == -1)
-		return;
+	write(sock, info, strlen(info) + 1);
+	pthread_mutex_unlock(&logout_user);
 }
 
 void loggedInUsers(int sock)
 {
+	pthread_mutex_lock(&logged_in_users);
 	vector <string> loggedIn;
 	for (users_iter = users.begin(); users_iter != users.end(); users_iter++)
 		if (users_iter -> second.second)
@@ -184,14 +216,23 @@ void loggedInUsers(int sock)
 			users += "\n";
 	}
 	const char* info = users.c_str();
-	if (write(sock, info, strlen(info) + 1) == -1)
-		return;
+	write(sock, info, strlen(info) + 1);
+	pthread_mutex_unlock(&logged_in_users);
 }
 
 void createGroup(char *buffer, int sock)
 {
-	char *temp = strtok(buffer, " ");
-	temp = strtok(NULL, " ");
+	pthread_mutex_lock(&create_group);
+	char *lock;
+	char *temp = strtok_r(buffer, " ", &lock);
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No name provided for creating the group.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&create_group);
+		return;
+	}
 	string group(temp), res;
 
 	if (groups.count(group) > 0)
@@ -205,14 +246,23 @@ void createGroup(char *buffer, int sock)
 	}
 
 	const char* info = res.c_str();
-	if (write(sock, info, strlen(info) + 1) == -1)
-		return;
+	write(sock, info, strlen(info) + 1);
+	pthread_mutex_unlock(&create_group);
 }
 
 void joinGroup(char *buffer, int sock)
 {
-	char *temp = strtok(buffer, " ");
-	temp = strtok(NULL, " ");
+	pthread_mutex_lock(&join_group);
+	char *lock;
+	char *temp = strtok_r(buffer, " ", &lock);
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No group name provided to join into.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&join_group);
+		return;
+	}
 	string group(temp), res;
 
 	if (groups.count(group) == 0)
@@ -236,24 +286,35 @@ void joinGroup(char *buffer, int sock)
 			res = "You are already in this group.";
 	}
 	const char* info = res.c_str();
-	if (write(sock, info, strlen(info) + 1) == -1)
-		return;
+	write(sock, info, strlen(info) + 1);
+	pthread_mutex_unlock(&join_group);
 }
 
 void messageUser(char *buffer, int sock)
 {
-	char *temp = strtok(buffer, " ");
-	if (temp == NULL)
+	pthread_mutex_lock(&personal_message);
+	char *lock;
+	char *temp = strtok_r(buffer, " ", &lock);
+
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No receiver provided.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&personal_message);
 		return;
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
-		return;
+	}
 	string receiver(temp);
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No message to send.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&personal_message);
 		return;
+	}
 	string message(temp);
-	while (temp = strtok(NULL, " "))
+	while (temp = strtok_r(NULL, " ", &lock))
 	{
 		string x(temp);
 		message += " " + x;
@@ -264,8 +325,9 @@ void messageUser(char *buffer, int sock)
 	{
 		message = "This user doesn\'t exist. Select a different user to message.";
 		const char* info = message.c_str();
-		if (write(sock, info, strlen(info) + 1) == -1)
-			return;
+		write(sock, info, strlen(info) + 1);
+		pthread_mutex_unlock(&personal_message);
+		return;
 	}
 
 	if (users[receiver].second)
@@ -275,43 +337,56 @@ void messageUser(char *buffer, int sock)
 			string temp = personal_chat[receiver].front();
 			personal_chat[receiver].pop();
 			const char* info = temp.c_str();
-			if (write(user_to_conn[receiver], info, strlen(info) + 1) == -1)
-				return;
+			write(user_to_conn[receiver], info, strlen(info) + 1);
+			pthread_mutex_unlock(&personal_message);
+			return;
 		}
 		const char* info = message.c_str();
-		if (write(user_to_conn[receiver], info, strlen(info) + 1) == -1)
-			return;
+		write(user_to_conn[receiver], info, strlen(info) + 1);
+		pthread_mutex_unlock(&personal_message);
+		return;
 	}
 	else
 		personal_chat[receiver].push(message);
+	pthread_mutex_unlock(&personal_message);
 }
 
 void messageGroup(char *buffer, int sock)
 {
-	char *temp = strtok(buffer, " ");
-	if (temp == NULL)
+	pthread_mutex_lock(&group_message);
+	char *lock;
+	char *temp = strtok_r(buffer, " ", &lock);
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No group name provided for messaging.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&group_message);
 		return;
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
-		return;
+	}
 	string groupname(temp);
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
+	temp = strtok_r(NULL, " ", &lock);
+	if (!temp)
+	{
+		char message[] = "No message to send.";
+		write(sock, message, strlen(message) + 1);
+		pthread_mutex_unlock(&group_message);
 		return;
+	}
 	string message(temp);
-	while (temp = strtok(NULL, " "))
+	while (temp = strtok_r(NULL, " ", &lock))
 	{
 		string x(temp);
 		message += " " + x;
 	}
 	message = conn_to_user[sock] + ": " + message + " (sent to group " + groupname + ")";
-
 	if (groups.count(groupname) == 0)
 	{
 		message = "This group doesn\'t exist. Select a different group to message, or create a new group.";
 		const char* info = message.c_str();
-		if (write(sock, info, strlen(info) + 1) == -1)
-			return;
+		write(sock, info, strlen(info) + 1);
+		pthread_mutex_unlock(&group_message);
+		return;
 	}
 
 	else
@@ -323,17 +398,22 @@ void messageGroup(char *buffer, int sock)
 			{
 				const char* info = message.c_str();
 				if (write(user_to_conn[members[i]], info, strlen(info) + 1) == -1)
+				{
+					pthread_mutex_unlock(&group_message);
 					return;
+				}
 			}
 			else
 				personal_chat[members[i]].push(message);
 		}
 	}
+	pthread_mutex_unlock(&group_message);
 }
 
 
 void clearPersonalMessageQueue(int sock)
 {
+	pthread_mutex_lock(&clear_queue);
 	string username = conn_to_user[sock], temp = "";
 	queue <string> messages = personal_chat[username];
 	while (!messages.empty())
@@ -344,26 +424,34 @@ void clearPersonalMessageQueue(int sock)
 			temp += '\n';
 	}
 	const char* info = temp.c_str();
-	if (write(sock, info, strlen(info) + 1) == -1)
-		return;
+	write(sock, info, strlen(info) + 1);
+	pthread_mutex_unlock(&clear_queue);
+	return;
 }
 
 void receiveFile(char* buffer, int sock)
 {
-	char recd_file[MAX];
-	char *temp = strtok(buffer, " ");
-	if (temp == NULL)
-		return;
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
-		return;
-	string receiver(temp);
-	temp = strtok(NULL, " ");
-	if (temp == NULL)
-		return;
+	pthread_mutex_lock(&recv_file);
 
+	char recd_file[MAX], *lock;
+	char *temp = strtok_r(buffer, " ", &lock);
+
+	temp = strtok_r(NULL, " ", &lock);
+	string receiver(temp);
+	temp = strtok_r(NULL, " ", &lock);
+	string filename(temp), servername = "server_file_" + to_string(sock) + to_string(counter), extension = "", tag_along = "";
 	read(sock, recd_file, sizeof(recd_file));
-	string contents(recd_file), filename(temp), servername = "server_file_" + (to_string(counter)), extension = "";
+	
+	int filesize = 0, i;
+	for (i = 0; recd_file[i] >= '0' && recd_file[i] <= '9'; i++)
+		filesize = filesize * 10 + recd_file[i] - '0';
+	for (int j = i + 1; j < MAX; j++)
+		tag_along += recd_file[j];
+	char fc[filesize + 1];
+	read(sock, fc, sizeof(fc));
+	string contents(fc);
+	contents = tag_along + contents + fc[strlen(fc) - 1];
+
 	for (int i = 0; i < filename.length(); i++)
 		if (filename[i] == '.')
 			for (int j = i; j < filename.length(); j++)
@@ -380,16 +468,21 @@ void receiveFile(char* buffer, int sock)
 	counter++;
 	fstream file;
 	file.open(servername.c_str(), fstream::out);
-	file << contents;
+	file.write(contents.c_str(), strlen(contents.c_str() + 1));
 	file.close();
 	string message = "File received by server.";
 	const char* info = message.c_str();
 	if (write(sock, info, strlen(info) + 1) == -1)
+	{
+		pthread_mutex_unlock(&recv_file);
 		return;
+	}
+	pthread_mutex_unlock(&recv_file);
 }
 
 void sendFile(int sock)
 {
+	pthread_mutex_lock(&send_file);
 	string receiver = conn_to_user[sock], msg, servername, filename;
 	bool flag = 0;
 	if (files.count(receiver) == 0)
@@ -404,22 +497,32 @@ void sendFile(int sock)
 	}
 	const char* info = msg.c_str();
 	if (write(sock, info, strlen(info) + 1) == -1 || flag)
+	{
+		pthread_mutex_unlock(&send_file);
 		return;
+	}
 	ifstream file;
 	vector <pair <string, string> > t = files[receiver]; 
 	for (int i = 0; i < t.size(); i++)
 	{
 		servername = t[i].first, filename = t[i].second;
 		file.open(servername);
+		string x = to_string(sock) + filename;
 		stringstream buf;
-		buf << to_string(sock) + filename << "\n" << file.rdbuf();
+		buf << file.rdbuf();
 		file.close();
 		string fdata(buf.str());
+		fdata = x + "\n" + fdata;
 		info = fdata.c_str();
 		if (write(sock, info, strlen(info) + 1) == -1 || flag)
+		{
+			pthread_mutex_unlock(&send_file);
 			return;
+		}
 		remove(servername.c_str());
 	}
+	files.erase(receiver);
+	pthread_mutex_unlock(&send_file);
 }
 
 void *functionHandler(void* socket_descriptor)
@@ -433,7 +536,8 @@ void *functionHandler(void* socket_descriptor)
 			return 0;
 	
 		strcpy(temp_buffer, buffer);
-		char *temp = strtok(temp_buffer, " ");
+		char *lock;
+		char *temp = strtok_r(temp_buffer, " ", &lock);
 		string command(temp);
 		cout << "Command received: " << command << endl;
 		if (command == "/login")
@@ -457,6 +561,7 @@ void *functionHandler(void* socket_descriptor)
 		else if (command == "/recv")
 			sendFile(sock);
 	}
+	cout << "Closing connection." << endl;
 	close(sock);
 }
 

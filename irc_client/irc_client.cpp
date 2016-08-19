@@ -22,11 +22,13 @@ using namespace std;
 
 #define REGISTRATION_PORT 5555
 #define IRC_PORT 5556
-#define MAX 500
+#define MAX 1024
+#define FILE_SIZE 5000000
 
 char server_host[MAX];
 bool isLoggedIn = false;
 set <string> joinedGroups;
+int counter = 0;
 
 int initializeSocket(int port_number)
 {
@@ -63,21 +65,23 @@ int initializeSocket(int port_number)
 void* receive(void* sock)
 {
 	int socket_descriptor = *(int*)sock;
-	char buffer[MAX];
+	char buffer[MAX], *lock;
 	while (1)
 	{
-		int flag = read(socket_descriptor, buffer, sizeof(buffer));
-		if (!flag)
+		if (!read(socket_descriptor, buffer, sizeof(buffer)))
 			break;
 		string message(buffer);
+
 		if (message == "")
-			cout << "You have no unread messages." << endl;
-		else
-			cout << message << endl;
+			message = "You have no unread messages.";
+		cout << message << endl;
+
 		if (message == "You have been successfully logged in.")
 			isLoggedIn = true;
+
 		else if (message == "You have been successfully logged out.")
 			isLoggedIn = false;
+
 		else if (message.substr(0, 13) == "You were sent")
 		{
 			int num_files = 0;
@@ -85,18 +89,20 @@ void* receive(void* sock)
 				num_files = num_files * 10 + message[i] - '0';
 			for (int i = 0; i < num_files; i++)
 			{
-				read(socket_descriptor, buffer, sizeof(buffer));
-				char temp[strlen(buffer) + 1];
-				strcpy(temp, buffer);
-				char *temp1 = strtok(temp, "\n");
-				string filecontents(buffer);
-				filecontents.erase(0, filecontents.find("\n") + 1);
+				char input[FILE_SIZE];
+				read(socket_descriptor, input, sizeof(input));
+				string in(input), filename = "client_" + to_string(socket_descriptor) + "_" + to_string(counter);
+				filename = in.substr(0, in.find("\n"));
+				in.erase(0, in.find("\n"));
+				counter++;
 				fstream file;
-				file.open(temp1, fstream::out);
-				file << filecontents;
+				file.open(filename.c_str(), fstream::out);
+				file.write(in.c_str(), in.length());
 				file.close();
 			}
 		}
+		else
+			continue;
 	}
 }
 
@@ -213,9 +219,9 @@ int main(int argc, char *argv[])
 					close(IRC_socket);
 					exit(0);
 				}
-				char temp[MAX];
+				char temp[MAX], *lock;
 				strcpy(temp, in.c_str());
-				char *temp1 = strtok(temp, " ");
+				char *temp1 = strtok_r(temp, " ", &lock);
 				string g(temp1);
 				joinedGroups.insert(g);
 			}
@@ -227,24 +233,24 @@ int main(int argc, char *argv[])
 			if (isLoggedIn)
 			{
 				const char* temp = in.c_str();
-				char x[strlen(temp + 1)];
+				char x[strlen(temp) + 1], *lock;
 				for (int i = 0; i < strlen(temp); i++)
 					x[i] = temp[i];
 				x[strlen(temp)] = '\0';
 
-				char* temp1 = strtok(x, " ");
-				temp1 = strtok(NULL, " ");
+				char* temp1 = strtok_r(x, " ", &lock);
+				temp1 = strtok_r(NULL, " ", &lock);
 				if (!temp1)
 				{
 					cout << "No receiver specified." << endl;
-					return 0;
+					continue;
 				}
 				string receiver(temp1);
-				temp1 = strtok(NULL, " ");
+				temp1 = strtok_r(NULL, " ", &lock);
 				if (!temp1)
 				{
 					cout << "No file specified." << endl;
-					return 0;
+					continue;
 				}
 
 				string fname(temp1);
@@ -271,10 +277,22 @@ int main(int argc, char *argv[])
 				}
 
 				stringstream buf;
-				buf << file.rdbuf();
+				buf << file.rdbuf() << '\0';
 				file.close();
 				string fdata(buf.str());
-
+				if (buf.str().length() > 1000000)
+				{
+					cout << "The file is too large to be sent over this socket." << endl;
+					continue;
+				}
+				string res = to_string(buf.str().length());
+				if (sendData(res, IRC_socket) == -1)
+				{
+					cout << "Connection with server is down. Exiting.\n";
+					close(registration_socket);
+					close(IRC_socket);
+					exit(0);
+				}
 				if (sendData(fdata, IRC_socket) == -1)
 				{
 					cout << "Connection with server is down. Exiting.\n";
@@ -286,6 +304,8 @@ int main(int argc, char *argv[])
 			else
 				cout << "Please log in first.\n";
 		}
+		else if (in.length() == 0)
+			continue;
 		else
 			cout << "This command is not a part of the commands supported. Try again." << endl;
 	}
