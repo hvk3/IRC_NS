@@ -40,7 +40,7 @@ map <string, vector <pair <string, string> > >::iterator file_iter;
 
 int counter = 0;
 
-pthread_mutex_t save_users, logout_user, login_user, create_group, personal_message, group_message, clear_queue, recv_file, send_file, logged_in_users, join_group;
+pthread_mutex_t save_users, logout_user, login_user, create_group, personal_message, group_message, clear_queue, recv_file, send_file, logged_in_users, join_group, all_users;
 
 int initializeSocket(int port_number)
 {
@@ -93,7 +93,7 @@ int receiveData(int socket_descriptor)
 	return 0;
 }
 
-void* registerUser(void* socket_descriptor)
+void* registerUser(void* socket_descriptor)	// Error handling done; Works
 {
 	int sock = *(int*)socket_descriptor;
 	char buffer[MAX], *lock;
@@ -107,8 +107,7 @@ void* registerUser(void* socket_descriptor)
 			return 0;
 		}
 		char *temp = strtok_r(buffer, " ", &lock);
-		if (!temp)
-			return 0;
+		cout << "Command received: " << temp << endl;
 
 		temp = strtok_r(NULL, " ", &lock);
 		if (!temp)
@@ -143,7 +142,7 @@ void* registerUser(void* socket_descriptor)
 	}
 }
 
-int loginUser(char *buffer, int sock)
+int loginUser(char *buffer, int sock)	// Error handling done; Works
 {
 	char *lock;
 	pthread_mutex_lock(&login_user);
@@ -170,7 +169,7 @@ int loginUser(char *buffer, int sock)
 	string password(temp), res;
 
 	int flag = 0;
-	if (users.count(username) == 0 || users[username].first != password)
+	if (!users.count(username) || users[username].first != password)
 	{
 		res = "These credentials are invalid. Try again.";
 		flag = -1;
@@ -188,7 +187,7 @@ int loginUser(char *buffer, int sock)
 	return flag;
 }
 
-void logoutUser(int sock)
+void logoutUser(int sock)	// Error handling done; Works
 {
 	pthread_mutex_lock(&logout_user);
 	string username = conn_to_user[sock];
@@ -201,7 +200,7 @@ void logoutUser(int sock)
 	pthread_mutex_unlock(&logout_user);
 }
 
-void loggedInUsers(int sock)
+void loggedInUsers(int sock)	// Error handling done; Works
 {
 	pthread_mutex_lock(&logged_in_users);
 	vector <string> loggedIn;
@@ -220,7 +219,25 @@ void loggedInUsers(int sock)
 	pthread_mutex_unlock(&logged_in_users);
 }
 
-void createGroup(char *buffer, int sock)
+void allUsers(int sock)	// Error handling done; Works
+{
+	pthread_mutex_lock(&all_users);
+	vector <string> allUsers;
+	for (users_iter = users.begin(); users_iter != users.end(); users_iter++)
+		allUsers.push_back(users_iter -> first);
+	string users_names = "";
+	for (int i = 0; i < users.size(); i++)
+	{
+		users_names += allUsers[i];
+		if (i != allUsers.size() - 1)
+			users_names += "\n";
+	}
+	const char* info = users_names.c_str();
+	write(sock, info, strlen(info) + 1);
+	pthread_mutex_unlock(&all_users);
+}
+
+void createGroup(char *buffer, int sock)	// Error handling done; Works
 {
 	pthread_mutex_lock(&create_group);
 	char *lock;
@@ -250,7 +267,7 @@ void createGroup(char *buffer, int sock)
 	pthread_mutex_unlock(&create_group);
 }
 
-void joinGroup(char *buffer, int sock)
+void joinGroup(char *buffer, int sock)	// Error handling done; Works
 {
 	pthread_mutex_lock(&join_group);
 	char *lock;
@@ -265,7 +282,7 @@ void joinGroup(char *buffer, int sock)
 	}
 	string group(temp), res;
 
-	if (groups.count(group) == 0)
+	if (!groups.count(group))
 		res = "This group does not exist. Try creating it.";
 	else
 	{
@@ -290,7 +307,7 @@ void joinGroup(char *buffer, int sock)
 	pthread_mutex_unlock(&join_group);
 }
 
-void messageUser(char *buffer, int sock)
+void messageUser(char *buffer, int sock)	// Error handling done; Works
 {
 	pthread_mutex_lock(&personal_message);
 	char *lock;
@@ -321,7 +338,7 @@ void messageUser(char *buffer, int sock)
 	}
 	message = conn_to_user[sock] + ": " + message;
 
-	if (users.count(receiver) == 0)
+	if (!users.count(receiver))
 	{
 		message = "This user doesn\'t exist. Select a different user to message.";
 		const char* info = message.c_str();
@@ -344,7 +361,7 @@ void messageUser(char *buffer, int sock)
 		const char* info = message.c_str();
 		write(user_to_conn[receiver], info, strlen(info) + 1);
 		pthread_mutex_unlock(&personal_message);
-		char temp[] = "Your messages have been successfully delivered.";
+		char temp[] = "Your message has been successfully delivered.";
 		write(sock, temp, strlen(temp) + 1);
 		return;
 	}
@@ -357,7 +374,7 @@ void messageUser(char *buffer, int sock)
 	pthread_mutex_unlock(&personal_message);
 }
 
-void messageGroup(char *buffer, int sock)
+void messageGroup(char *buffer, int sock)	// Error handling done; Works
 {
 	pthread_mutex_lock(&group_message);
 	char *lock;
@@ -386,7 +403,7 @@ void messageGroup(char *buffer, int sock)
 		message += " " + x;
 	}
 	message = conn_to_user[sock] + ": " + message + " (sent to group " + groupname + ")";
-	if (groups.count(groupname) == 0)
+	if (!groups.count(groupname))
 	{
 		message = "This group doesn\'t exist. Select a different group to message, or create a new group.";
 		const char* info = message.c_str();
@@ -417,7 +434,7 @@ void messageGroup(char *buffer, int sock)
 }
 
 
-void clearPersonalMessageQueue(int sock)
+void clearPersonalMessageQueue(int sock)	// Error handling done; Works
 {
 	pthread_mutex_lock(&clear_queue);
 	string username = conn_to_user[sock], temp = "";
@@ -463,7 +480,7 @@ void receiveFile(char* buffer, int sock)
 			for (int j = i; j < filename.length(); j++)
 				extension += filename[j];
 	servername += extension;
-	if (files.count(receiver) == 0)
+	if (!files.count(receiver))
 	{
 		vector <pair <string, string> > temp;
 		temp.push_back(make_pair(servername, filename));
@@ -491,7 +508,7 @@ void sendFile(int sock)
 	pthread_mutex_lock(&send_file);
 	string receiver = conn_to_user[sock], msg, servername, filename;
 	bool flag = 0;
-	if (files.count(receiver) == 0)
+	if (!files.count(receiver))
 	{
 		msg = "You have no files to receive.";
 		flag = 1;
@@ -531,7 +548,7 @@ void sendFile(int sock)
 	pthread_mutex_unlock(&send_file);
 }
 
-void *functionHandler(void* socket_descriptor)
+void *functionHandler(void* socket_descriptor)	// Error handling done; Works
 {
 	int sock = *(int*)socket_descriptor;
 	char buffer[MAX], input[MAX], temp_buffer[MAX];
@@ -566,6 +583,8 @@ void *functionHandler(void* socket_descriptor)
 			receiveFile(buffer, sock);
 		else if (command == "/recv")
 			sendFile(sock);
+		else if (command == "/all_users")
+			allUsers(sock);
 	}
 	cout << "Closing connection." << endl;
 	close(sock);

@@ -26,7 +26,7 @@ using namespace std;
 #define FILE_SIZE 5000000
 
 char server_host[MAX];
-bool isLoggedIn = false;
+bool isLoggedIn = false, confirmation = false;
 set <string> joinedGroups;
 int counter = 0;
 
@@ -146,6 +146,7 @@ int main(int argc, char *argv[])
 	cout << "/recv: Receive the file that is being sent by someone.\n";
 	cout << "/logout: Log out from IRC.\n";
 	cout << "/recv_msg: Receive all messages that were sent while you were logged out.\n";
+	cout << "/all_users: List all registered users.\n";
 	cout << "/exit: Exit portal.\nYou can start now.\n";
 
 	pthread_t IRC_receive, reg_receive;
@@ -176,7 +177,7 @@ int main(int argc, char *argv[])
 				exit(0);
 			}
 		}
-		else if (in == "/logout" || in.substr(0, 4) == "/msg" || in == "/recv_msg" || in.substr(0, 10) == "/msg_group" || in == "/who" || in == "/recv")
+		else if (in == "/logout" || in.substr(0, 4) == "/msg" || in == "/recv_msg" || in.substr(0, 10) == "/msg_group" || in == "/who" || in == "/recv" || in == "/all_users")
 		{
 			if (isLoggedIn)
 			{
@@ -189,6 +190,8 @@ int main(int argc, char *argv[])
 				}
 				if (in == "/who")
 					cout << "List of online users:" << endl;
+				if (in == "/all_users")
+					cout << "All users:" << endl;
 			}
 			else
 				cout << "Please log in first.\n";
